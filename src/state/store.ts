@@ -5,6 +5,7 @@ import { DEFAULT_PARAMS, normalizeParams, type CaseParams } from '../model/param
 interface ParamsState {
   params: CaseParams;
   setBody: <K extends keyof CaseParams['body']>(key: K, value: CaseParams['body'][K]) => void;
+  setLid: <K extends keyof CaseParams['lid']>(key: K, value: CaseParams['lid'][K]) => void;
   setPrint: <K extends keyof CaseParams['print']>(key: K, value: CaseParams['print'][K]) => void;
   /** JSON 読み込み時など、丸ごと置き換える（正規化してから入れる） */
   replace: (input: unknown) => void;
@@ -42,6 +43,8 @@ export const useParams = create<ParamsState>()(
       params: DEFAULT_PARAMS,
       setBody: (key, value) =>
         set((s) => ({ params: { ...s.params, body: { ...s.params.body, [key]: value } } })),
+      setLid: (key, value) =>
+        set((s) => ({ params: { ...s.params, lid: { ...s.params.lid, [key]: value } } })),
       setPrint: (key, value) =>
         set((s) => ({ params: { ...s.params, print: { ...s.params.print, [key]: value } } })),
       replace: (input) => set({ params: normalizeParams(input) }),

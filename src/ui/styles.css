@@ -105,3 +105,21 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
+
+.field select {
+  font: inherit;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  max-width: 170px;
+}
+.field label.checkbox { justify-content: flex-start; }
+.field label.checkbox input { accent-color: var(--accent); }
+.hint { color: var(--muted); font-size: 12px; margin: 4px 0 6px; }
+
+.segmented { display: inline-flex; }
+.segmented button { border-radius: 0; padding: 3px 10px; }
+.segmented button:first-child { border-radius: 6px 0 0 6px; }
+.segmented button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.segmented button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }

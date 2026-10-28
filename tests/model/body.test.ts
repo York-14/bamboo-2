@@ -4,14 +4,17 @@ import { deriveDims } from '../../src/model/derive';
 import { DEFAULT_PARAMS, type CaseParams } from '../../src/model/params';
 import { bounds, isWatertight, loadWasm, roundedRectArea } from './helpers';
 
+/** フタなしの本体だけを検証する */
+const NO_LID: CaseParams = { ...DEFAULT_PARAMS, lid: { ...DEFAULT_PARAMS.lid, enabled: false } };
+
 function withBody(patch: Partial<CaseParams['body']>): CaseParams {
-  return { ...DEFAULT_PARAMS, body: { ...DEFAULT_PARAMS.body, ...patch } };
+  return { ...NO_LID, body: { ...NO_LID.body, ...patch } };
 }
 
-describe('本体の生成', () => {
+describe('本体の生成（フタなし）', () => {
   it('代表サイズ（内寸 100×60×30）の外寸が 104.8×64.8×32 になる', async () => {
     const wasm = await loadWasm();
-    const body = buildCase(wasm, DEFAULT_PARAMS).parts[0];
+    const body = buildCase(wasm, NO_LID).parts[0];
     const { min, size } = bounds(body.mesh);
     expect(size[0]).toBeCloseTo(104.8, 4);
     expect(size[1]).toBeCloseTo(64.8, 4);
@@ -21,12 +24,12 @@ describe('本体の生成', () => {
 
   it('メッシュが水密である', async () => {
     const wasm = await loadWasm();
-    expect(isWatertight(buildCase(wasm, DEFAULT_PARAMS).parts[0].mesh)).toBe(true);
+    expect(isWatertight(buildCase(wasm, NO_LID).parts[0].mesh)).toBe(true);
   });
 
   it('体積が理論値とほぼ一致する', async () => {
     const wasm = await loadWasm();
-    const p = DEFAULT_PARAMS;
+    const p = NO_LID;
     const d = deriveDims(p);
     const expected =
       roundedRectArea(d.outerWidth, d.outerDepth, p.body.cornerRadius) * d.outerHeight -
@@ -55,7 +58,7 @@ describe('本体の生成', () => {
 
   it('底面の面取りで体積が減り、外寸は変わらない', async () => {
     const wasm = await loadWasm();
-    const plain = buildCase(wasm, DEFAULT_PARAMS).parts[0];
+    const plain = buildCase(wasm, NO_LID).parts[0];
     const chamfered = buildCase(wasm, withBody({ bottomChamfer: 1 })).parts[0];
     expect(chamfered.volume).toBeLessThan(plain.volume);
     expect(bounds(chamfered.mesh).size[0]).toBeCloseTo(104.8, 4);

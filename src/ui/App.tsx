@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import { deriveDims } from '../model/derive';
-import { meshToStl } from '../export/stl';
+import type { PartResult } from '../model/mesh';
+import { meshToStl, transformMesh } from '../export/stl';
 import { useParams } from '../state/store';
 import { downloadBlob, fmt } from './files';
 import { ParamPanel } from './ParamPanel';
 import { useGeometry } from './useGeometry';
-import { Viewer, type ViewOptions } from './Viewer';
+import { Viewer, type Layout, type ViewOptions } from './Viewer';
 
 export function App() {
   const params = useParams((s) => s.params);
@@ -15,21 +16,34 @@ export function App() {
   const dims = deriveDims(params);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const [layout, setLayout] = useState<Layout>('assembled');
   const [sectionOn, setSectionOn] = useState(false);
   const [sectionY, setSectionY] = useState(0);
   const [showEdges, setShowEdges] = useState(true);
-  const view: ViewOptions = { sectionY: sectionOn ? sectionY : null, showEdges };
+  const [lidOpen, setLidOpen] = useState(0);
+  const [lidTranslucent, setLidTranslucent] = useState(false);
+  const view: ViewOptions = {
+    layout,
+    sectionY: sectionOn ? sectionY : null,
+    showEdges,
+    lidOpen,
+    lidTranslucent,
+  };
 
   const b = params.body;
   const baseName = `case_${fmt(b.innerWidth)}x${fmt(b.innerDepth)}x${fmt(b.innerHeight)}`;
   const errors = issues.filter((i) => i.level === 'error');
   const warnings = issues.filter((i) => i.level === 'warning');
   const exportDisabled = !result || errors.length > 0 || busy;
+  const mainParts = result?.parts.filter((p) => p.group === 'main') ?? [];
+  const couponParts = result?.parts.filter((p) => p.group === 'coupon') ?? [];
+  const hasLid = !!result?.lidSlide;
 
-  const exportStl = (name: string) => {
-    const part = result?.parts.find((p) => p.name === name);
-    if (!part) return;
-    downloadBlob(new Blob([meshToStl(part.mesh, `${baseName}_${name}`)], { type: 'model/stl' }), `${baseName}_${name}.stl`);
+  // STL は印刷する向き・位置（Z=0 に接地）で書き出す
+  const exportStl = (part: PartResult) => {
+    const name = `${baseName}_${part.name}`;
+    const mesh = transformMesh(part.mesh, part.printMatrix);
+    downloadBlob(new Blob([meshToStl(mesh, name)], { type: 'model/stl' }), `${name}.stl`);
   };
 
   const saveJson = () => {
@@ -81,12 +95,26 @@ export function App() {
         <section className="panel-section">
           <h2>出力</h2>
           <div className="buttons">
-            {result?.parts.map((part) => (
-              <button key={part.name} className="primary" disabled={exportDisabled} onClick={() => exportStl(part.name)}>
+            {mainParts.map((part) => (
+              <button key={part.name} className="primary" disabled={exportDisabled} onClick={() => exportStl(part)}>
                 {part.label} STL
               </button>
             ))}
           </div>
+          {couponParts.length > 0 && (
+            <>
+              <p className="hint">
+                嵌合テスト用の小片：同じ溝・隙間・クリック設定の小さなケースです。本番の前に印刷して、フタの固さを確認できます。
+              </p>
+              <div className="buttons">
+                {couponParts.map((part) => (
+                  <button key={part.name} disabled={exportDisabled} onClick={() => exportStl(part)}>
+                    {part.label} STL
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
           <div className="buttons">
             <button onClick={saveJson}>JSON 保存</button>
             <button onClick={() => fileInput.current?.click()}>JSON 読み込み</button>
@@ -109,6 +137,14 @@ export function App() {
       <main className="viewport">
         <Viewer result={result} view={view} />
         <div className="view-toolbar">
+          <div className="segmented" role="group" aria-label="表示">
+            <button className={layout === 'assembled' ? 'active' : ''} onClick={() => setLayout('assembled')}>
+              組み立て
+            </button>
+            <button className={layout === 'print' ? 'active' : ''} onClick={() => setLayout('print')}>
+              印刷配置
+            </button>
+          </div>
           <label>
             <input type="checkbox" checked={showEdges} onChange={(e) => setShowEdges(e.target.checked)} /> 輪郭線
           </label>
@@ -126,11 +162,30 @@ export function App() {
               aria-label="断面の位置"
             />
           )}
+          {hasLid && layout === 'assembled' && (
+            <>
+              <label>
+                <input type="checkbox" checked={lidTranslucent} onChange={(e) => setLidTranslucent(e.target.checked)} /> フタ半透明
+              </label>
+              <label>
+                フタを開く
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={lidOpen}
+                  onChange={(e) => setLidOpen(e.target.valueAsNumber)}
+                  aria-label="フタの開き具合"
+                />
+              </label>
+            </>
+          )}
         </div>
         <div className="status">
           {busy ? '計算中…' : elapsedMs !== null ? `生成 ${elapsedMs.toFixed(0)} ms` : ''}
-          {result && ` / 三角形 ${result.parts.reduce((n, p) => n + p.mesh.indices.length / 3, 0).toLocaleString()}`}
-          {result && ` / 体積 ${(result.parts[0].volume / 1000).toFixed(1)} cm³`}
+          {result && ` / 三角形 ${mainParts.reduce((n, p) => n + p.mesh.indices.length / 3, 0).toLocaleString()}`}
+          {mainParts.map((p) => ` / ${p.label} ${(p.volume / 1000).toFixed(1)} cm³`).join('')}
         </div>
       </main>
     </div>

@@ -1,4 +1,4 @@
-import type { MeshData } from '../model/mesh';
+import type { Mat4, MeshData } from '../model/mesh';
 
 /** バイナリ STL（ヘッダ 80 byte + 三角形数 + 三角形ごとに 50 byte） */
 export function meshToStl(mesh: MeshData, header = 'bamboo case generator'): ArrayBuffer {
@@ -38,4 +38,17 @@ export function meshToStl(mesh: MeshData, header = 'bamboo case generator'): Arr
     offset += 2;
   }
   return buffer;
+}
+
+/** 4x4 行列（列優先）を頂点に適用したメッシュを返す。回転と平行移動のみを想定（向きは保たれる） */
+export function transformMesh(mesh: MeshData, m: Mat4): MeshData {
+  const src = mesh.positions;
+  const out = new Float32Array(src.length);
+  for (let i = 0; i < src.length; i += 3) {
+    const x = src[i], y = src[i + 1], z = src[i + 2];
+    out[i] = m[0] * x + m[4] * y + m[8] * z + m[12];
+    out[i + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+    out[i + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+  }
+  return { positions: out, indices: mesh.indices };
 }
