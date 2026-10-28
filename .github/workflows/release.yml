@@ -1,11 +1,21 @@
 name: Release
 
+# タグの push で動くほか、Actions の画面（または API）から手動実行もできる。
+# 手動実行では入力したタグを、実行したブランチの先頭コミットに作成する。
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 作成するタグ（例 v0.1.0）
+        required: true
 
 permissions:
   contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   release:
@@ -21,14 +31,16 @@ jobs:
       - run: npm test
       # 添付用の静的ファイル一式（任意の静的サーバーのルートに置けば動く）
       - run: npm run build
-      - run: cd dist && zip -r "../case-generator-${GITHUB_REF_NAME}.zip" .
+      - run: cd dist && zip -r "../case-generator-${TAG}.zip" .
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          notes="docs/releases/${TAG}.md"
+          # タグがまだなければ、このコミットに作成される
+          args=("$TAG" "case-generator-${TAG}.zip" --title "$TAG" --target "$GITHUB_SHA")
           if [ -f "$notes" ]; then
-            gh release create "$GITHUB_REF_NAME" "case-generator-${GITHUB_REF_NAME}.zip" --title "$GITHUB_REF_NAME" --notes-file "$notes"
+            gh release create "${args[@]}" --notes-file "$notes"
           else
-            gh release create "$GITHUB_REF_NAME" "case-generator-${GITHUB_REF_NAME}.zip" --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "${args[@]}" --generate-notes
           fi

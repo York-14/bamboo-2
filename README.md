@@ -25,14 +25,15 @@ npm run dev      # 表示された URL（既定 http://localhost:5173）を Chro
 
 ## リリース
 
-`v*` のタグを push すると、テスト・ビルドのうえ GitHub Release が作られる（`.github/workflows/release.yml`）。
+`v*` のタグを push するか、Actions の「Release」ワークフローをタグ名を入力して手動実行すると、
+テスト・ビルドのうえ GitHub Release が作られる（`.github/workflows/release.yml`）。手動実行ではタグも作成される。
 リリースノートは `docs/releases/<タグ名>.md` があればそれを使う。
 
 | ワークフロー | タイミング | 内容 |
 |---|---|---|
 | CI | プルリクエスト | 型チェック・テスト・ビルド |
 | Deploy to GitHub Pages | `main` への push | 同上 + Pages へデプロイ |
-| Release | `v*` タグの push | 同上 + GitHub Release（静的ファイルの zip を添付） |
+| Release | `v*` タグの push／手動実行 | 同上 + GitHub Release（静的ファイルの zip を添付） |
 
 ## 構成
 
