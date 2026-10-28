@@ -1,7 +1,7 @@
 // ケースのパラメータ定義。単位はすべて mm。
 // このオブジェクトが唯一の情報源で、形状は毎回ここから作り直す。
 
-export const PARAMS_VERSION = 5;
+export const PARAMS_VERSION = 6;
 
 export interface BodyParams {
   /** 内寸 横（X） */
@@ -170,6 +170,33 @@ export interface RetainerParams {
   shelfThickness: number;
 }
 
+export type FingerHole = 'none' | 'circle' | 'slot';
+export const FINGER_HOLES: FingerHole[] = ['none', 'circle', 'slot'];
+
+/**
+ * 中板（高さ方向の仕切り）。別部品の水平な板を、本体の内側全周に作る受けの段に載せる。
+ * 段は全周なので、中板は 1 枚（上の板があると下の板を入れられないため）。
+ * 縦の仕切り（X・Y）は中板の下の段だけに作る。
+ */
+export interface LayerParams {
+  enabled: boolean;
+  /** 中板の下面（＝受けの段の上面）の、床面からの高さ */
+  height: number;
+  plateThickness: number;
+  /** 中板と内側の壁との隙間（片側） */
+  sideClearance: number;
+  /** 受けの段の壁からの奥行き */
+  ledgeDepth: number;
+  /** 受けの段の先端の厚み（その下は 45° の斜面） */
+  ledgeThickness: number;
+  /** 中板を持ち上げるための指穴（中板の中央） */
+  fingerHole: FingerHole;
+  /** circle は直径、slot は長さ */
+  fingerHoleSize: number;
+  /** slot の幅 */
+  fingerHoleWidth: number;
+}
+
 export interface PrintParams {
   /** ノズル径 */
   nozzleDiameter: number;
@@ -188,6 +215,7 @@ export interface CaseParams {
   dividers: DividerParams;
   holes: HoleParams[];
   retainers: RetainerParams[];
+  layer: LayerParams;
   print: PrintParams;
 }
 
@@ -218,6 +246,17 @@ export const DEFAULT_PARAMS: CaseParams = {
   },
   holes: [],
   retainers: [],
+  layer: {
+    enabled: false,
+    height: 15,
+    plateThickness: 2.0,
+    sideClearance: 0.3,
+    ledgeDepth: 2.5,
+    ledgeThickness: 1.2,
+    fingerHole: 'slot',
+    fingerHoleSize: 24,
+    fingerHoleWidth: 12,
+  },
   dividers: {
     x: { enabled: false, mode: 'equal', divisions: 2, positions: [50] },
     y: { enabled: false, mode: 'equal', divisions: 2, positions: [30] },
@@ -356,6 +395,7 @@ export function normalizeParams(input: unknown): CaseParams {
     dividers: normalizeDividers(obj.dividers),
     holes: normalizeHoles(obj.holes),
     retainers: normalizeRetainers(obj.retainers),
+    layer: mergeFields(DEFAULT_PARAMS.layer, obj.layer, { fingerHole: FINGER_HOLES }),
     print: mergeFields(DEFAULT_PARAMS.print, obj.print),
   };
 }

@@ -14,6 +14,7 @@ import { NumberField } from './NumberField';
 import { PositionsField } from './PositionsField';
 import { HoleList } from './HoleEditor';
 import { RetainerList } from './RetainerEditor';
+import { LayerEditor } from './LayerEditor';
 
 type BodyKey = keyof CaseParams['body'];
 type PrintKey = keyof CaseParams['print'];
@@ -276,6 +277,8 @@ export function ParamPanel({ issues }: { issues: Issue[] }) {
           </>
         )}
       </section>
+
+      <LayerEditor issues={issues} />
 
       <HoleList issues={issues} />
 
