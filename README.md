@@ -7,6 +7,10 @@ FDM 3D プリンタ向けの、パラメトリックなケース（スライド�
 
 ## 使い方
 
+公開版：<https://york-14.github.io/bamboo-2/>（`main` への push で GitHub Pages に自動デプロイ）
+
+手元で動かす場合：
+
 ```sh
 npm install
 npm run dev      # 表示された URL（既定 http://localhost:5173）を Chrome で開く
@@ -18,6 +22,17 @@ npm run dev      # 表示された URL（既定 http://localhost:5173）を Chro
 | `npm test` | 形状生成・入力検証・STL 出力のテスト（Node 上で manifold を実行） |
 | `npm run typecheck` | 型チェック |
 | `npm run build` | 静的ファイルを `dist/` に出力 |
+
+## リリース
+
+`v*` のタグを push すると、テスト・ビルドのうえ GitHub Release が作られる（`.github/workflows/release.yml`）。
+リリースノートは `docs/releases/<タグ名>.md` があればそれを使う。
+
+| ワークフロー | タイミング | 内容 |
+|---|---|---|
+| CI | プルリクエスト | 型チェック・テスト・ビルド |
+| Deploy to GitHub Pages | `main` への push | 同上 + Pages へデプロイ |
+| Release | `v*` タグの push | 同上 + GitHub Release（静的ファイルの zip を添付） |
 
 ## 構成
 
