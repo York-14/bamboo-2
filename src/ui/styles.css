@@ -134,3 +134,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .field[data-level='error'] input.positions { border-color: var(--error); background: var(--error-bg); }
 .field[data-level='warning'] input.positions { border-color: var(--warning); background: var(--warning-bg); }
 .subgroup { margin: 4px 0 10px; padding-left: 10px; border-left: 2px solid var(--border); }
+
+.hole-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px 2px;
+  margin-bottom: 8px;
+}
+.hole-card summary { cursor: pointer; font-size: 13px; padding: 2px 0 6px; }
+.hole-card[open] summary { margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.hole-card[data-level='error'] { border-color: var(--error); }
+.hole-card[data-level='warning'] { border-color: var(--warning); }
+.pattern-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pattern-row .field input[type='number'] { width: 52px; }

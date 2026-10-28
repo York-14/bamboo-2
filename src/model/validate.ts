@@ -1,5 +1,6 @@
-import type { CaseParams } from './params';
+import type { CaseParams, HoleParams } from './params';
 import { deriveDims, deriveDividerLayout, deriveLidDims } from './derive';
+import { boxesOverlap, faceBox, holeCenters, holeExtent, isWallFace, patternExtent, usesHeight, type Box3 } from './holes';
 
 export type IssueLevel = 'error' | 'warning';
 
@@ -66,6 +67,7 @@ export function validate(p: CaseParams): Issue[] {
   }
   if (l.enabled) validateLid(p, err, warn);
   validateDividers(p, err, warn);
+  for (const hole of p.holes) validateHole(p, hole, err, warn);
   return issues;
 }
 
@@ -192,5 +194,92 @@ function validateDividers(p: CaseParams, err: Report, warn: Report): void {
     if (dv.notchWidth > 0 && dv.notchWidth > shortest - 2 * t) {
       warn('dividers.notchWidth', `切り欠きの幅が区画の幅（最小 ${shortest.toFixed(1)} mm）に対して広すぎます`);
     }
+  }
+}
+
+const FACE_LABEL: Record<HoleParams['face'], string> = {
+  front: '手前の壁',
+  back: '奥の壁',
+  left: '左の壁',
+  right: '右の壁',
+  bottom: '底面',
+  lid: 'フタ',
+};
+
+/** 仕切り板が占める範囲（壁・底への食い込み分を含む） */
+function dividerBoxes(p: CaseParams): Box3[] {
+  const b = p.body;
+  const t = p.dividers.thickness;
+  const layout = deriveDividerLayout(p);
+  const zMin = b.bottomThickness / 2;
+  const reachY = b.innerDepth / 2 + b.wallThickness / 2;
+  const reachX = b.innerWidth / 2 + b.wallThickness / 2;
+  return layout.placements.map((pl) =>
+    pl.axis === 'x'
+      ? { min: [pl.center - t / 2, -reachY, zMin], max: [pl.center + t / 2, reachY, layout.zTop] }
+      : { min: [-reachX, pl.center - t / 2, zMin], max: [reachX, pl.center + t / 2, layout.zTop] },
+  );
+}
+
+function validateHole(p: CaseParams, hole: HoleParams, err: Report, warn: Report): void {
+  const path = `holes.${hole.id}`;
+  const b = p.body;
+  const comp = p.print.holeCompensation;
+
+  if (!(hole.width > 0)) return err(path, '穴の幅（直径）は 0 より大きくしてください');
+  if (usesHeight(hole) && !(hole.height > 0)) return err(path, '穴の高さは 0 より大きくしてください');
+  if (hole.shape === 'roundRect' && hole.cornerRadius < 0) return err(path, '角の丸みは 0 以上にしてください');
+  const { cols, rows, pitchU, pitchV } = hole.pattern;
+  if (![cols, rows].every((n) => Number.isInteger(n) && n >= 1)) return err(path, '配列の個数は 1 以上の整数にしてください');
+  if ((cols > 1 && !(pitchU > 0)) || (rows > 1 && !(pitchV > 0))) return err(path, '配列の間隔は 0 より大きくしてください');
+  if (hole.face === 'lid' && !p.lid.enabled) return err(path, 'フタがないため、フタの穴は開けられません');
+
+  const single = holeExtent(hole, comp);
+  if ((cols > 1 && pitchU < single.uMax - single.uMin) || (rows > 1 && pitchV < single.vMax - single.vMin)) {
+    warn(path, '配列の間隔が穴の大きさより狭く、穴同士がつながります');
+  }
+
+  const e = patternExtent(hole, comp);
+  const d = deriveDims(p);
+  const label = FACE_LABEL[hole.face];
+  const innerR = Math.max(b.cornerRadius - b.wallThickness, 0);
+
+  if (isWallFace(hole.face)) {
+    const innerLen = hole.face === 'front' || hole.face === 'back' ? b.innerWidth : b.innerDepth;
+    const uAbs = Math.max(-e.uMin, e.uMax);
+    if (uAbs > innerLen / 2 + b.wallThickness || e.vMin < 0 || e.vMax > d.outerHeight) {
+      return err(path, `穴が${label}からはみ出しています`);
+    }
+    if (uAbs > innerLen / 2 - innerR) warn(path, `穴が${label}の角（丸み・隣の壁）にかかっています`);
+    if (e.vMin < b.bottomThickness) warn(path, `穴が底面の高さ（${b.bottomThickness} mm）より下にかかっています`);
+    if (p.lid.enabled && e.vMax > deriveLidDims(p).zCut - 0.3) {
+      warn(path, `穴がフタの溝の高さ（${deriveLidDims(p).zCut.toFixed(1)} mm）にかかっています`);
+    }
+  } else {
+    // 底面・フタ：内側の空間の範囲に収まっているか
+    const halfU = b.innerWidth / 2;
+    const halfV = b.innerDepth / 2;
+    if (e.uMin < -d.outerWidth / 2 || e.uMax > d.outerWidth / 2 || e.vMin < -d.outerDepth / 2 || e.vMax > d.outerDepth / 2) {
+      return err(path, `穴が${label}からはみ出しています`);
+    }
+    const corner = Math.max(Math.abs(e.uMin), Math.abs(e.uMax)) > halfU - innerR &&
+      Math.max(Math.abs(e.vMin), Math.abs(e.vMax)) > halfV - innerR;
+    if (e.uMin < -halfU || e.uMax > halfU || e.vMin < -halfV || e.vMax > halfV || corner) {
+      warn(path, `穴が${label}の内側の範囲からはみ出し、壁${hole.face === 'lid' ? 'や溝' : ''}にかかっています`);
+    }
+  }
+
+  if (hole.face !== 'lid') {
+    const dbs = dividerBoxes(p);
+    const hit = holeCenters(hole).some(([u, v]) => {
+      const box = faceBox(p, hole.face, {
+        uMin: u + single.uMin,
+        uMax: u + single.uMax,
+        vMin: v + single.vMin,
+        vMax: v + single.vMax,
+      });
+      return dbs.some((db) => boxesOverlap(box, db));
+    });
+    if (hit) warn(path, '穴が仕切りと重なっています');
   }
 }

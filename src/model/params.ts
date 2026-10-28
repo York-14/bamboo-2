@@ -1,7 +1,7 @@
 // ケースのパラメータ定義。単位はすべて mm。
 // このオブジェクトが唯一の情報源で、形状は毎回ここから作り直す。
 
-export const PARAMS_VERSION = 3;
+export const PARAMS_VERSION = 4;
 
 export interface BodyParams {
   /** 内寸 横（X） */
@@ -88,6 +88,46 @@ export interface DividerParams {
   notchDepth: number;
 }
 
+/**
+ * 穴を開ける面。front = -Y、back = +Y、left = -X、right = +X。
+ * 壁の面は外から見て、u が右方向（面の中心から）、v が外形底面からの高さ。
+ * bottom・lid は上から見て、u = X、v = Y（中心から）。
+ */
+export type HoleFace = 'front' | 'back' | 'left' | 'right' | 'bottom' | 'lid';
+export const HOLE_FACES: HoleFace[] = ['front', 'back', 'left', 'right', 'bottom', 'lid'];
+export const WALL_FACES: HoleFace[] = ['front', 'back', 'left', 'right'];
+
+/**
+ * circle・teardrop: width = 直径。teardrop は壁の穴の上部を 45° に尖らせた形（常に上向き）
+ * hexagon: width = 対辺の距離（平らな辺が上下）
+ * rect・roundRect・slot: width × height。slot は両端が半円の長穴
+ */
+export type HoleShape = 'circle' | 'teardrop' | 'rect' | 'roundRect' | 'slot' | 'hexagon';
+export const HOLE_SHAPES: HoleShape[] = ['circle', 'teardrop', 'rect', 'roundRect', 'slot', 'hexagon'];
+
+export interface HolePattern {
+  /** u 方向の個数・間隔、v 方向の個数・間隔。配列全体の中心が (u, v) になる */
+  cols: number;
+  rows: number;
+  pitchU: number;
+  pitchV: number;
+}
+
+export interface HoleParams {
+  id: string;
+  face: HoleFace;
+  shape: HoleShape;
+  u: number;
+  v: number;
+  width: number;
+  height: number;
+  /** roundRect の角の丸み */
+  cornerRadius: number;
+  /** 回転角（度、反時計回り）。circle・teardrop では無視 */
+  rotation: number;
+  pattern: HolePattern;
+}
+
 export interface PrintParams {
   /** ノズル径 */
   nozzleDiameter: number;
@@ -95,6 +135,8 @@ export interface PrintParams {
   minWall: number;
   /** 円弧の分割数（360° あたり） */
   circularSegments: number;
+  /** 穴の寸法補正（直径・幅・高さに足す量）。FDM では穴が小さく仕上がるため */
+  holeCompensation: number;
 }
 
 export interface CaseParams {
@@ -102,6 +144,7 @@ export interface CaseParams {
   body: BodyParams;
   lid: LidParams;
   dividers: DividerParams;
+  holes: HoleParams[];
   print: PrintParams;
 }
 
@@ -130,6 +173,7 @@ export const DEFAULT_PARAMS: CaseParams = {
     clickInterference: 0.4,
     clickDiameter: 2.0,
   },
+  holes: [],
   dividers: {
     x: { enabled: false, mode: 'equal', divisions: 2, positions: [50] },
     y: { enabled: false, mode: 'equal', divisions: 2, positions: [30] },
@@ -145,7 +189,21 @@ export const DEFAULT_PARAMS: CaseParams = {
     nozzleDiameter: 0.4,
     minWall: 1.2,
     circularSegments: 64,
+    holeCompensation: 0.2,
   },
+};
+
+/** 「穴を追加」で作る穴（id は呼び出し側で付ける） */
+export const DEFAULT_HOLE: Omit<HoleParams, 'id'> = {
+  face: 'front',
+  shape: 'circle',
+  u: 0,
+  v: 17,
+  width: 10,
+  height: 6,
+  cornerRadius: 1,
+  rotation: 0,
+  pattern: { cols: 1, rows: 1, pitchU: 15, pitchV: 15 },
 };
 
 /** 既定値の構造に沿って、型が一致する値だけを取り込む（文字列は候補に含まれるものだけ） */
@@ -189,6 +247,20 @@ function normalizeDividers(input: unknown): DividerParams {
   };
 }
 
+function normalizeHoles(input: unknown): HoleParams[] {
+  if (!Array.isArray(input)) return [];
+  const used = new Set<string>();
+  return input
+    .filter((h): h is Record<string, unknown> => typeof h === 'object' && h !== null)
+    .map((h, i) => {
+      const base = mergeFields(DEFAULT_HOLE, h, { face: HOLE_FACES, shape: HOLE_SHAPES });
+      let id = typeof h.id === 'string' && h.id !== '' ? h.id : `hole-${i + 1}`;
+      while (used.has(id)) id = `${id}-dup`;
+      used.add(id);
+      return { ...base, id, pattern: mergeFields(DEFAULT_HOLE.pattern, h.pattern) };
+    });
+}
+
 /** JSON 読み込み・localStorage 復元時の正規化。欠けた項目や不正な値は既定値で埋める */
 export function normalizeParams(input: unknown): CaseParams {
   const obj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
@@ -200,6 +272,7 @@ export function normalizeParams(input: unknown): CaseParams {
       cornerMode: LID_CORNER_MODES,
     }),
     dividers: normalizeDividers(obj.dividers),
+    holes: normalizeHoles(obj.holes),
     print: mergeFields(DEFAULT_PARAMS.print, obj.print),
   };
 }

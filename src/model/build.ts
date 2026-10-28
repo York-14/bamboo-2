@@ -4,6 +4,7 @@ import { deriveDims, deriveLidDims } from './derive';
 import { IDENTITY, type BuildResult, type Mat4, type MeshData, type PartGroup, type PartResult } from './mesh';
 import { buildBodyShell } from './geometry/body';
 import { buildDividers } from './geometry/dividers';
+import { buildHoleCutters } from './geometry/holes';
 import { buildLid, buildLidCuts } from './geometry/lid';
 import { Scope } from './geometry/scope';
 
@@ -17,10 +18,16 @@ export interface CaseManifolds {
  * 生成したオブジェクトは scope に登録されるので、呼び出し側で解放すること。
  */
 export function buildCaseManifolds(wasm: ManifoldToplevel, scope: Scope, p: CaseParams): CaseManifolds {
-  const { body, lid } = buildBodyAndLid(wasm, scope, p);
+  const { body: shell, lid: plainLid } = buildBodyAndLid(wasm, scope, p);
   // 仕切りはワールド座標で作って足す（本体の外形＝凸包で切り取る）
-  const dividers = buildDividers(wasm, scope, p, scope.keep(body.hull()));
-  return { body: dividers ? scope.keep(body.add(dividers)) : body, lid };
+  const dividers = buildDividers(wasm, scope, p, scope.keep(shell.hull()));
+  let body = dividers ? scope.keep(shell.add(dividers)) : shell;
+  let lid = plainLid;
+  // 穴は最後に開ける（仕切りが壁に食い込んだ部分も含めて貫通させる）
+  const cutters = buildHoleCutters(wasm, scope, p);
+  if (cutters.body) body = scope.keep(body.subtract(cutters.body));
+  if (cutters.lid && lid) lid = scope.keep(lid.subtract(cutters.lid));
+  return { body, lid };
 }
 
 function buildBodyAndLid(wasm: ManifoldToplevel, scope: Scope, p: CaseParams): CaseManifolds {
@@ -93,6 +100,7 @@ export function couponParams(p: CaseParams): CaseParams {
       x: { ...p.dividers.x, enabled: false },
       y: { ...p.dividers.y, enabled: false },
     },
+    holes: [],
   };
 }
 

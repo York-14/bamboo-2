@@ -12,6 +12,7 @@ import { useParams } from '../state/store';
 import { CheckboxField, SelectField } from './ChoiceFields';
 import { NumberField } from './NumberField';
 import { PositionsField } from './PositionsField';
+import { HoleList } from './HoleEditor';
 
 type BodyKey = keyof CaseParams['body'];
 type PrintKey = keyof CaseParams['print'];
@@ -68,6 +69,7 @@ const PRINT_FIELDS: FieldDef<PrintKey>[] = [
   { key: 'nozzleDiameter', label: 'ノズル径', min: 0.2, max: 1.0, step: 0.05 },
   { key: 'minWall', label: '最小壁厚', min: 0.4, max: 3, step: 0.1 },
   { key: 'circularSegments', label: '円弧の分割数', min: 16, max: 256, step: 8, unit: '/360°' },
+  { key: 'holeCompensation', label: '穴の寸法補正', min: 0, max: 0.6, step: 0.05 },
 ];
 
 const CORNER_MODE_OPTIONS: { value: LidCornerMode; label: string }[] = [
@@ -273,6 +275,8 @@ export function ParamPanel({ issues }: { issues: Issue[] }) {
           </>
         )}
       </section>
+
+      <HoleList issues={issues} />
 
       <details className="panel-section">
         <summary>
