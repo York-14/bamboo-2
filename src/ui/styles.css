@@ -147,3 +147,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .hole-card[data-level='warning'] { border-color: var(--warning); }
 .pattern-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .pattern-row .field input[type='number'] { width: 52px; }
+
+.confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+button.danger { border-color: var(--error); color: var(--error); }
+.save-notice { margin: 6px 0 0; font-size: 12px; }
+.save-notice.ok { color: #2f7d32; }
+.save-notice.error { color: var(--error); }
+
+/* 幅の狭い画面（スマホ）：プレビューを上、設定を下に縦に並べる */
+@media (max-width: 760px) {
+  .app { flex-direction: column; height: auto; min-height: 100%; }
+  .viewport { order: -1; flex: none; height: 55vh; min-height: 280px; }
+  .sidebar { width: 100%; border-right: none; border-top: 1px solid var(--border); overflow: visible; }
+  .view-toolbar { flex-wrap: wrap; right: 12px; gap: 8px; }
+  .view-toolbar input[type='range'] { width: 100px; }
+}

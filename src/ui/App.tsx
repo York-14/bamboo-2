@@ -3,7 +3,7 @@ import { deriveDims } from '../model/derive';
 import type { PartResult } from '../model/mesh';
 import { meshToStl, transformMesh } from '../export/stl';
 import { useParams } from '../state/store';
-import { downloadBlob, fmt } from './files';
+import { fmt, makeZip, saveFile, textFile, type SaveFile, type SaveOutcome } from './files';
 import { ParamPanel } from './ParamPanel';
 import { useGeometry } from './useGeometry';
 import { Viewer, type Layout, type ViewOptions } from './Viewer';
@@ -40,21 +40,41 @@ export function App() {
   const hasLid = !!result?.lidSlide;
 
   // STL は印刷する向き・位置（Z=0 に接地）で書き出す
-  const exportStl = (part: PartResult) => {
-    const name = `${baseName}_${part.name}`;
-    const mesh = transformMesh(part.mesh, part.printMatrix);
-    downloadBlob(new Blob([meshToStl(mesh, name)], { type: 'model/stl' }), `${name}.stl`);
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
+
+  const report = (outcome: SaveOutcome, what: string) => {
+    if (outcome === 'saved') setNotice({ kind: 'ok', text: `${what}を保存しました` });
+    else if (outcome === 'declined') setNotice(null);
+    else setNotice({ kind: 'error', text: `${what}を保存できませんでした` });
   };
 
-  const saveJson = () => {
-    downloadBlob(new Blob([JSON.stringify(params, null, 2)], { type: 'application/json' }), `${baseName}.json`);
+  const stlFile = (part: PartResult): SaveFile => {
+    const name = `${baseName}_${part.name}`;
+    const mesh = transformMesh(part.mesh, part.printMatrix);
+    return { name: `${name}.stl`, data: new Uint8Array(meshToStl(mesh, name)) };
+  };
+
+  const exportStl = async (part: PartResult) => {
+    report(await saveFile(stlFile(part), 'model/stl'), `${part.label}の STL `);
+  };
+
+  // 本番の部品と設定 JSON をまとめた zip
+  const exportAll = async () => {
+    const files = [...mainParts.map(stlFile), textFile(`${baseName}.json`, JSON.stringify(params, null, 2))];
+    report(await saveFile({ name: `${baseName}.zip`, data: makeZip(files) }, 'application/zip'), 'zip ');
+  };
+
+  const saveJson = async () => {
+    report(await saveFile(textFile(`${baseName}.json`, JSON.stringify(params, null, 2)), 'application/json'), 'JSON ');
   };
 
   const loadJson = async (file: File) => {
     try {
       replace(JSON.parse(await file.text()));
+      setNotice({ kind: 'ok', text: `${file.name} を読み込みました` });
     } catch {
-      alert('JSON を読み込めませんでした');
+      setNotice({ kind: 'error', text: `${file.name} を JSON として読み込めませんでした` });
     }
   };
 
@@ -96,10 +116,15 @@ export function App() {
           <h2>出力</h2>
           <div className="buttons">
             {mainParts.map((part) => (
-              <button key={part.name} className="primary" disabled={exportDisabled} onClick={() => exportStl(part)}>
+              <button key={part.name} className="primary" disabled={exportDisabled} onClick={() => void exportStl(part)}>
                 {part.label} STL
               </button>
             ))}
+            {mainParts.length > 1 && (
+              <button disabled={exportDisabled} onClick={() => void exportAll()}>
+                すべて（zip）
+              </button>
+            )}
           </div>
           {couponParts.length > 0 && (
             <>
@@ -108,7 +133,7 @@ export function App() {
               </p>
               <div className="buttons">
                 {couponParts.map((part) => (
-                  <button key={part.name} disabled={exportDisabled} onClick={() => exportStl(part)}>
+                  <button key={part.name} disabled={exportDisabled} onClick={() => void exportStl(part)}>
                     {part.label} STL
                   </button>
                 ))}
@@ -116,9 +141,26 @@ export function App() {
             </>
           )}
           <div className="buttons">
-            <button onClick={saveJson}>JSON 保存</button>
+            <button onClick={() => void saveJson()}>JSON 保存</button>
             <button onClick={() => fileInput.current?.click()}>JSON 読み込み</button>
-            <button onClick={() => confirm('パラメータを初期値に戻しますか？') && reset()}>初期値に戻す</button>
+            {confirmReset ? (
+              <span className="confirm">
+                初期値に戻しますか？
+                <button
+                  className="danger"
+                  onClick={() => {
+                    reset();
+                    setConfirmReset(false);
+                    setNotice({ kind: 'ok', text: '初期値に戻しました' });
+                  }}
+                >
+                  戻す
+                </button>
+                <button onClick={() => setConfirmReset(false)}>やめる</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmReset(true)}>初期値に戻す</button>
+            )}
             <input
               ref={fileInput}
               type="file"
@@ -131,6 +173,11 @@ export function App() {
               }}
             />
           </div>
+          {notice && (
+            <p className={`save-notice ${notice.kind}`} role="status">
+              {notice.text}
+            </p>
+          )}
         </section>
       </aside>
 
