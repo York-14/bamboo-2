@@ -1,5 +1,5 @@
 import type { CaseParams } from './params';
-import { deriveDims, deriveLidDims } from './derive';
+import { deriveDims, deriveDividerLayout, deriveLidDims } from './derive';
 
 export type IssueLevel = 'error' | 'warning';
 
@@ -65,6 +65,7 @@ export function validate(p: CaseParams): Issue[] {
     warn('body.wallThickness', `壁厚がノズル径の 2 倍（${p.print.nozzleDiameter * 2} mm）未満で、きれいに印刷できない可能性があります`);
   }
   if (l.enabled) validateLid(p, err, warn);
+  validateDividers(p, err, warn);
   return issues;
 }
 
@@ -118,6 +119,78 @@ function validateLid(p: CaseParams, err: Report, warn: Report): void {
     const straightHalfSpan = ld.span / 2 - Math.max(b.cornerRadius - b.wallThickness, 0);
     if (Math.max(...ld.clickYs.map(Math.abs)) + ld.clickDimpleRadius > straightHalfSpan) {
       warn('lid.clickDiameter', 'クリックの位置が壁の角の丸みにかかっています');
+    }
+  }
+}
+
+function validateDividers(p: CaseParams, err: Report, warn: Report): void {
+  const dv = p.dividers;
+  if (!dv.x.enabled && !dv.y.enabled) return;
+  const b = p.body;
+  const t = dv.thickness;
+
+  if (!(t > 0)) {
+    err('dividers.thickness', '仕切りの厚みは 0 より大きくしてください');
+    return;
+  }
+  if (t < p.print.nozzleDiameter * 2) {
+    warn('dividers.thickness', `仕切りの厚みがノズル径の 2 倍（${p.print.nozzleDiameter * 2} mm）未満です`);
+  }
+
+  const layout = deriveDividerLayout(p);
+  if (dv.heightMode === 'full') {
+    if (dv.topClearance < 0) err('dividers.topClearance', 'フタとの隙間は 0 以上にしてください');
+    else if (layout.maxHeight <= 0) err('dividers.topClearance', 'フタとの隙間が内寸の高さ以上です');
+  } else if (!(dv.height > 0)) {
+    err('dividers.height', '仕切りの高さは 0 より大きくしてください');
+  } else if (dv.height > layout.maxHeight + 1e-9) {
+    err(
+      'dividers.height',
+      p.lid.enabled
+        ? `仕切りがフタに当たります。高さは ${layout.maxHeight.toFixed(1)} mm 以下にしてください（内寸高さ − フタとの隙間）`
+        : `仕切りの高さは内寸の高さ（${b.innerHeight} mm）以下にしてください`,
+    );
+  }
+
+  const sets = [
+    { key: 'x', set: dv.x, length: b.innerWidth, label: '横' },
+    { key: 'y', set: dv.y, length: b.innerDepth, label: '縦' },
+  ] as const;
+  for (const { key, set, length, label } of sets) {
+    if (!set.enabled) continue;
+    if (set.mode === 'equal') {
+      if (!Number.isInteger(set.divisions) || set.divisions < 1) {
+        err(`dividers.${key}.divisions`, '区画数は 1 以上の整数にしてください');
+        continue;
+      }
+      const cell = (length - (set.divisions - 1) * t) / set.divisions;
+      if (cell <= 0) err(`dividers.${key}.divisions`, `${label}方向の区画数が多すぎます`);
+      else if (cell < 5) warn(`dividers.${key}.divisions`, `${label}方向の区画の内寸が ${cell.toFixed(1)} mm と狭くなります`);
+      continue;
+    }
+    if (set.positions.length === 0) {
+      warn(`dividers.${key}.positions`, `${label}方向の仕切り位置が指定されていません`);
+      continue;
+    }
+    const sorted = [...set.positions].sort((a, c) => a - c);
+    if (sorted.some((pos) => pos - t / 2 <= 0 || pos + t / 2 >= length)) {
+      err(`dividers.${key}.positions`, `仕切りの位置は ${(t / 2).toFixed(1)}〜${(length - t / 2).toFixed(1)} mm の範囲にしてください`);
+      continue;
+    }
+    const gaps = [sorted[0] - t / 2, ...sorted.slice(1).map((v, i) => v - sorted[i] - t), length - sorted[sorted.length - 1] - t / 2];
+    if (gaps.some((g) => g <= 0)) err(`dividers.${key}.positions`, '仕切り同士が重なっています');
+    else if (gaps.some((g) => g < 5)) warn(`dividers.${key}.positions`, '幅 5 mm 未満の狭い区画があります');
+  }
+
+  if (dv.notchShape !== 'none') {
+    if (!(dv.notchWidth > 0)) err('dividers.notchWidth', '切り欠きの幅は 0 より大きくしてください');
+    if (!(dv.notchDepth > 0)) err('dividers.notchDepth', '切り欠きの深さは 0 より大きくしてください');
+    else if (dv.notchDepth >= layout.height) err('dividers.notchDepth', '切り欠きの深さは仕切りの高さより小さくしてください');
+    const shortest = Math.min(
+      ...layout.placements.flatMap((pl) => pl.segments.map((s) => s.to - s.from)),
+    );
+    if (dv.notchWidth > 0 && dv.notchWidth > shortest - 2 * t) {
+      warn('dividers.notchWidth', `切り欠きの幅が区画の幅（最小 ${shortest.toFixed(1)} mm）に対して広すぎます`);
     }
   }
 }

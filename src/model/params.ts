@@ -1,7 +1,7 @@
 // ケースのパラメータ定義。単位はすべて mm。
 // このオブジェクトが唯一の情報源で、形状は毎回ここから作り直す。
 
-export const PARAMS_VERSION = 2;
+export const PARAMS_VERSION = 3;
 
 export interface BodyParams {
   /** 内寸 横（X） */
@@ -50,6 +50,44 @@ export interface LidParams {
   clickDiameter: number;
 }
 
+export type DividerMode = 'equal' | 'custom';
+export const DIVIDER_MODES: DividerMode[] = ['equal', 'custom'];
+
+/** 一方向に並べる仕切りの組 */
+export interface DividerSet {
+  enabled: boolean;
+  /** equal: 区画数で等分 / custom: 位置を個別に指定 */
+  mode: DividerMode;
+  /** equal のときの区画数（2 なら仕切り 1 枚） */
+  divisions: number;
+  /** custom のときの仕切り板の中心位置。内側の空間のマイナス側の壁からの距離 */
+  positions: number[];
+}
+
+export type DividerHeightMode = 'full' | 'custom';
+export const DIVIDER_HEIGHT_MODES: DividerHeightMode[] = ['full', 'custom'];
+
+export type NotchShape = 'none' | 'u' | 'v';
+export const NOTCH_SHAPES: NotchShape[] = ['none', 'u', 'v'];
+
+/** 本体と一体で印刷する固定仕切り。x と y を両方有効にすると格子になる */
+export interface DividerParams {
+  /** X 方向に並べる仕切り（横幅を分割する。板は Y 方向に延びる） */
+  x: DividerSet;
+  /** Y 方向に並べる仕切り（奥行きを分割する。板は X 方向に延びる） */
+  y: DividerSet;
+  thickness: number;
+  /** full: フタ（または上面）まで / custom: 高さを指定（底面の上側から） */
+  heightMode: DividerHeightMode;
+  height: number;
+  /** full のとき、フタの下面との隙間 */
+  topClearance: number;
+  /** 指を入れる切り欠き。仕切りで区切られた区画ごとに 1 つ、上端の中央に付ける */
+  notchShape: NotchShape;
+  notchWidth: number;
+  notchDepth: number;
+}
+
 export interface PrintParams {
   /** ノズル径 */
   nozzleDiameter: number;
@@ -63,6 +101,7 @@ export interface CaseParams {
   version: number;
   body: BodyParams;
   lid: LidParams;
+  dividers: DividerParams;
   print: PrintParams;
 }
 
@@ -90,6 +129,17 @@ export const DEFAULT_PARAMS: CaseParams = {
     clickEnabled: true,
     clickInterference: 0.4,
     clickDiameter: 2.0,
+  },
+  dividers: {
+    x: { enabled: false, mode: 'equal', divisions: 2, positions: [50] },
+    y: { enabled: false, mode: 'equal', divisions: 2, positions: [30] },
+    thickness: 1.2,
+    heightMode: 'full',
+    height: 20,
+    topClearance: 1.0,
+    notchShape: 'u',
+    notchWidth: 20,
+    notchDepth: 12,
   },
   print: {
     nozzleDiameter: 0.4,
@@ -120,6 +170,25 @@ function mergeFields<T extends object>(
   return out;
 }
 
+function normalizeDividerSet(defaults: DividerSet, input: unknown): DividerSet {
+  const out = mergeFields(defaults, input, { mode: DIVIDER_MODES });
+  const positions = (input as { positions?: unknown } | null)?.positions;
+  out.positions = Array.isArray(positions)
+    ? positions.filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+    : [...defaults.positions];
+  return out;
+}
+
+function normalizeDividers(input: unknown): DividerParams {
+  const d = DEFAULT_PARAMS.dividers;
+  const obj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
+  return {
+    ...mergeFields(d, input, { heightMode: DIVIDER_HEIGHT_MODES, notchShape: NOTCH_SHAPES }),
+    x: normalizeDividerSet(d.x, obj.x),
+    y: normalizeDividerSet(d.y, obj.y),
+  };
+}
+
 /** JSON 読み込み・localStorage 復元時の正規化。欠けた項目や不正な値は既定値で埋める */
 export function normalizeParams(input: unknown): CaseParams {
   const obj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
@@ -130,6 +199,7 @@ export function normalizeParams(input: unknown): CaseParams {
       entrySide: ENTRY_SIDES,
       cornerMode: LID_CORNER_MODES,
     }),
+    dividers: normalizeDividers(obj.dividers),
     print: mergeFields(DEFAULT_PARAMS.print, obj.print),
   };
 }

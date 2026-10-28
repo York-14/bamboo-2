@@ -1,14 +1,27 @@
-import type { CaseParams, EntrySide, LidCornerMode } from '../model/params';
+import type {
+  CaseParams,
+  DividerHeightMode,
+  DividerMode,
+  EntrySide,
+  LidCornerMode,
+  NotchShape,
+} from '../model/params';
+import { deriveDividerLayout } from '../model/derive';
 import type { Issue } from '../model/validate';
 import { useParams } from '../state/store';
 import { CheckboxField, SelectField } from './ChoiceFields';
 import { NumberField } from './NumberField';
+import { PositionsField } from './PositionsField';
 
 type BodyKey = keyof CaseParams['body'];
 type PrintKey = keyof CaseParams['print'];
 type LidNumberKey = {
   [K in keyof CaseParams['lid']]: CaseParams['lid'][K] extends number ? K : never;
 }[keyof CaseParams['lid']];
+
+type DividerNumberKey = {
+  [K in keyof CaseParams['dividers']]: CaseParams['dividers'][K] extends number ? K : never;
+}[keyof CaseParams['dividers']];
 
 interface FieldDef<K> {
   key: K;
@@ -62,6 +75,71 @@ const CORNER_MODE_OPTIONS: { value: LidCornerMode; label: string }[] = [
   { value: 'reduced', label: '個別に指定' },
 ];
 
+const DIVIDER_MODE_OPTIONS: { value: DividerMode; label: string }[] = [
+  { value: 'equal', label: '等分' },
+  { value: 'custom', label: '位置を指定' },
+];
+
+const HEIGHT_MODE_OPTIONS: { value: DividerHeightMode; label: string }[] = [
+  { value: 'full', label: '上まで' },
+  { value: 'custom', label: '高さを指定' },
+];
+
+const NOTCH_OPTIONS: { value: NotchShape; label: string }[] = [
+  { value: 'none', label: 'なし' },
+  { value: 'u', label: 'U 字' },
+  { value: 'v', label: 'V 字' },
+];
+
+function DividerSetEditor({
+  axis,
+  title,
+  positionsLabel,
+  issuesFor,
+}: {
+  axis: 'x' | 'y';
+  title: string;
+  positionsLabel: string;
+  issuesFor: (path: string) => Issue[];
+}) {
+  const set = useParams((s) => s.params.dividers[axis]);
+  const setDividerSet = useParams((s) => s.setDividerSet);
+  return (
+    <>
+      <CheckboxField label={title} checked={set.enabled} onChange={(v) => setDividerSet(axis, 'enabled', v)} />
+      {set.enabled && (
+        <div className="subgroup">
+          <SelectField
+            label="分け方"
+            value={set.mode}
+            options={DIVIDER_MODE_OPTIONS}
+            onChange={(v) => setDividerSet(axis, 'mode', v)}
+          />
+          {set.mode === 'equal' ? (
+            <NumberField
+              label="区画数"
+              value={set.divisions}
+              min={1}
+              max={10}
+              step={1}
+              unit="区画"
+              onChange={(v) => setDividerSet(axis, 'divisions', v)}
+              issues={issuesFor(`dividers.${axis}.divisions`)}
+            />
+          ) : (
+            <PositionsField
+              label={positionsLabel}
+              values={set.positions}
+              onChange={(v) => setDividerSet(axis, 'positions', v)}
+              issues={issuesFor(`dividers.${axis}.positions`)}
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 function entryOptions(p: CaseParams): { value: EntrySide; label: string }[] {
   // 横（X）が長ければ ±X 側の壁が短辺
   const xIsShort = p.body.innerWidth >= p.body.innerDepth;
@@ -81,6 +159,22 @@ export function ParamPanel({ issues }: { issues: Issue[] }) {
   const setPrint = useParams((s) => s.setPrint);
   const issuesFor = (path: string) => issues.filter((i) => i.path === path);
   const lid = params.lid;
+  const dividers = params.dividers;
+  const setDividers = useParams((s) => s.setDividers);
+
+  const dividerNumberField = (f: FieldDef<DividerNumberKey>) => (
+    <NumberField
+      key={f.key}
+      label={f.label}
+      min={f.min}
+      max={f.max}
+      step={f.step}
+      unit={f.unit}
+      value={dividers[f.key]}
+      onChange={(v) => setDividers(f.key, v)}
+      issues={issuesFor(`dividers.${f.key}`)}
+    />
+  );
 
   const lidNumberField = (f: FieldDef<LidNumberKey>) => (
     <NumberField
@@ -143,6 +237,39 @@ export function ParamPanel({ issues }: { issues: Issue[] }) {
               onChange={(v) => setLid('clickEnabled', v)}
             />
             {lid.clickEnabled && CLICK_FIELDS.map(lidNumberField)}
+          </>
+        )}
+      </section>
+
+      <section className="panel-section">
+        <h2>仕切り</h2>
+        <DividerSetEditor axis="x" title="横（X）を分割する" positionsLabel="左の壁からの位置" issuesFor={issuesFor} />
+        <DividerSetEditor axis="y" title="縦（Y）を分割する" positionsLabel="手前の壁からの位置" issuesFor={issuesFor} />
+        {(dividers.x.enabled || dividers.y.enabled) && (
+          <>
+            {dividerNumberField({ key: 'thickness', label: '厚み', min: 0.8, max: 4, step: 0.1 })}
+            <SelectField
+              label="高さ"
+              value={dividers.heightMode}
+              options={HEIGHT_MODE_OPTIONS}
+              onChange={(v) => setDividers('heightMode', v)}
+            />
+            {dividers.heightMode === 'full'
+              ? lid.enabled && dividerNumberField({ key: 'topClearance', label: 'フタとの隙間', min: 0.2, max: 5, step: 0.1 })
+              : dividerNumberField({ key: 'height', label: '仕切りの高さ', min: 2, max: Math.max(params.body.innerHeight, 2), step: 0.5 })}
+            <p className="hint">仕切りの高さ（底面から）: {deriveDividerLayout(params).height.toFixed(1)} mm</p>
+            <SelectField
+              label="指を入れる切り欠き"
+              value={dividers.notchShape}
+              options={NOTCH_OPTIONS}
+              onChange={(v) => setDividers('notchShape', v)}
+            />
+            {dividers.notchShape !== 'none' && (
+              <>
+                {dividerNumberField({ key: 'notchWidth', label: '切り欠きの幅', min: 4, max: 60, step: 0.5 })}
+                {dividerNumberField({ key: 'notchDepth', label: '切り欠きの深さ', min: 2, max: 40, step: 0.5 })}
+              </>
+            )}
           </>
         )}
       </section>

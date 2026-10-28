@@ -123,3 +123,64 @@ export function deriveLidDims(p: CaseParams): LidDims {
     clickYs: [-span / 4, span / 4],
   };
 }
+
+/** 仕切り板 1 枚の配置（ワールド座標、内側の空間の中心が原点） */
+export interface DividerPlacement {
+  /** 板の法線方向。'x' なら X 位置 center にあり、Y 方向に延びる */
+  axis: 'x' | 'y';
+  center: number;
+  /** 直交する仕切りで区切られた区間（板の延びる方向の座標）。切り欠きは区間ごとに中央へ付ける */
+  segments: { from: number; to: number }[];
+}
+
+export interface DividerLayout {
+  placements: DividerPlacement[];
+  /** 仕切りの上端の高さ（Z、外形底面基準） */
+  zTop: number;
+  /** 底面の上側からの仕切りの高さ */
+  height: number;
+  /** full モードで取れる最大の高さ */
+  maxHeight: number;
+}
+
+/** 内寸 length を、厚み t の仕切りで区切るときの中心位置（内側の空間の中心が原点） */
+export function dividerCenters(set: CaseParams['dividers']['x'], length: number, t: number): number[] {
+  if (!set.enabled) return [];
+  if (set.mode === 'equal') {
+    const n = Math.max(Math.floor(set.divisions), 1);
+    const cell = (length - (n - 1) * t) / n;
+    return Array.from({ length: n - 1 }, (_, i) => -length / 2 + (i + 1) * cell + i * t + t / 2);
+  }
+  return [...set.positions].sort((a, b) => a - b).map((pos) => -length / 2 + pos);
+}
+
+/** 区間 [-half, half] を、厚み t の板（中心 cuts）で切った残りの区間 */
+function splitSegments(half: number, cuts: number[], t: number): { from: number; to: number }[] {
+  const segs: { from: number; to: number }[] = [];
+  let from = -half;
+  for (const c of cuts) {
+    segs.push({ from, to: c - t / 2 });
+    from = c + t / 2;
+  }
+  segs.push({ from, to: half });
+  return segs;
+}
+
+export function deriveDividerLayout(p: CaseParams): DividerLayout {
+  const b = p.body;
+  const dv = p.dividers;
+  const t = dv.thickness;
+  const xs = dividerCenters(dv.x, b.innerWidth, t);
+  const ys = dividerCenters(dv.y, b.innerDepth, t);
+  const maxHeight = b.innerHeight - (p.lid.enabled ? dv.topClearance : 0);
+  const height = dv.heightMode === 'full' ? maxHeight : dv.height;
+  return {
+    placements: [
+      ...xs.map((center) => ({ axis: 'x' as const, center, segments: splitSegments(b.innerDepth / 2, ys, t) })),
+      ...ys.map((center) => ({ axis: 'y' as const, center, segments: splitSegments(b.innerWidth / 2, xs, t) })),
+    ],
+    zTop: b.bottomThickness + height,
+    height,
+    maxHeight,
+  };
+}

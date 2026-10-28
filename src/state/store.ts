@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { DEFAULT_PARAMS, normalizeParams, type CaseParams } from '../model/params';
+import { DEFAULT_PARAMS, normalizeParams, type CaseParams, type DividerSet } from '../model/params';
 
 interface ParamsState {
   params: CaseParams;
   setBody: <K extends keyof CaseParams['body']>(key: K, value: CaseParams['body'][K]) => void;
   setLid: <K extends keyof CaseParams['lid']>(key: K, value: CaseParams['lid'][K]) => void;
+  setDividers: <K extends keyof CaseParams['dividers']>(key: K, value: CaseParams['dividers'][K]) => void;
+  setDividerSet: <K extends keyof DividerSet>(axis: 'x' | 'y', key: K, value: DividerSet[K]) => void;
   setPrint: <K extends keyof CaseParams['print']>(key: K, value: CaseParams['print'][K]) => void;
   /** JSON 読み込み時など、丸ごと置き換える（正規化してから入れる） */
   replace: (input: unknown) => void;
@@ -45,6 +47,13 @@ export const useParams = create<ParamsState>()(
         set((s) => ({ params: { ...s.params, body: { ...s.params.body, [key]: value } } })),
       setLid: (key, value) =>
         set((s) => ({ params: { ...s.params, lid: { ...s.params.lid, [key]: value } } })),
+      setDividers: (key, value) =>
+        set((s) => ({ params: { ...s.params, dividers: { ...s.params.dividers, [key]: value } } })),
+      setDividerSet: (axis, key, value) =>
+        set((s) => {
+          const dv = s.params.dividers;
+          return { params: { ...s.params, dividers: { ...dv, [axis]: { ...dv[axis], [key]: value } } } };
+        }),
       setPrint: (key, value) =>
         set((s) => ({ params: { ...s.params, print: { ...s.params.print, [key]: value } } })),
       replace: (input) => set({ params: normalizeParams(input) }),
