@@ -172,7 +172,10 @@ export function deriveDividerLayout(p: CaseParams): DividerLayout {
   const t = dv.thickness;
   const xs = dividerCenters(dv.x, b.innerWidth, t);
   const ys = dividerCenters(dv.y, b.innerDepth, t);
-  const maxHeight = b.innerHeight - (p.lid.enabled ? dv.topClearance : 0);
+  // 中板があれば、その下面から「フタとの隙間」と同じだけ下げる（中板の下の段だけを区切る）
+  const maxHeight = p.layer.enabled
+    ? p.layer.height - dv.topClearance
+    : b.innerHeight - (p.lid.enabled ? dv.topClearance : 0);
   const height = dv.heightMode === 'full' ? maxHeight : dv.height;
   return {
     placements: [
@@ -182,5 +185,36 @@ export function deriveDividerLayout(p: CaseParams): DividerLayout {
     zTop: b.bottomThickness + height,
     height,
     maxHeight,
+  };
+}
+
+export interface LayerDims {
+  /** 中板の平面寸法と角の丸み */
+  plateWidth: number;
+  plateDepth: number;
+  plateCornerRadius: number;
+  /** 中板の下面・上面の高さ（Z、外形底面基準） */
+  zBottom: number;
+  zTop: number;
+  /** 受けの段の最下部（斜面の下端）の、床面からの高さ */
+  ledgeLowest: number;
+  /** 中板が受けの段に載る幅（片側） */
+  bearing: number;
+}
+
+export function deriveLayerDims(p: CaseParams): LayerDims {
+  const b = p.body;
+  const l = p.layer;
+  const innerR = Math.max(b.cornerRadius - b.wallThickness, 0);
+  const zBottom = b.bottomThickness + l.height;
+  return {
+    plateWidth: b.innerWidth - 2 * l.sideClearance,
+    plateDepth: b.innerDepth - 2 * l.sideClearance,
+    plateCornerRadius: Math.max(innerR - l.sideClearance, 0),
+    zBottom,
+    zTop: zBottom + l.plateThickness,
+    // 斜面は 45°：奥行きぶん下がる
+    ledgeLowest: l.height - l.ledgeThickness - l.ledgeDepth,
+    bearing: l.ledgeDepth - l.sideClearance,
   };
 }

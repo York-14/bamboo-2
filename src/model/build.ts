@@ -1,17 +1,20 @@
 import type { Manifold, ManifoldToplevel } from 'manifold-3d';
 import type { CaseParams } from './params';
-import { deriveDims, deriveLidDims } from './derive';
+import { deriveDims, deriveLayerDims, deriveLidDims } from './derive';
 import { IDENTITY, type BuildResult, type Mat4, type MeshData, type PartGroup, type PartResult } from './mesh';
 import { buildBodyShell } from './geometry/body';
 import { buildDividers } from './geometry/dividers';
 import { buildHoleCutters } from './geometry/holes';
 import { buildRetainers } from './geometry/retainers';
+import { buildLayerLedge, buildLayerPlate } from './geometry/layer';
 import { buildLid, buildLidCuts } from './geometry/lid';
 import { Scope } from './geometry/scope';
 
 export interface CaseManifolds {
   body: Manifold;
   lid: Manifold | null;
+  /** 中板（別部品）。中板なしなら null */
+  plate?: Manifold | null;
 }
 
 /**
@@ -26,12 +29,17 @@ export function buildCaseManifolds(wasm: ManifoldToplevel, scope: Scope, p: Case
   let body = dividers ? scope.keep(shell.add(dividers)) : shell;
   const retainers = buildRetainers(wasm, scope, p, hull);
   if (retainers) body = scope.keep(body.add(retainers));
+  const plate = p.layer.enabled ? buildLayerPlate(wasm, scope, p) : null;
+  if (p.layer.enabled) {
+    const ledge = scope.keep(buildLayerLedge(wasm, scope, p).intersect(hull));
+    body = scope.keep(body.add(ledge));
+  }
   let lid = plainLid;
   // 穴は最後に開ける（仕切りが壁に食い込んだ部分も含めて貫通させる）
   const cutters = buildHoleCutters(wasm, scope, p);
   if (cutters.body) body = scope.keep(body.subtract(cutters.body));
   if (cutters.lid && lid) lid = scope.keep(lid.subtract(cutters.lid));
-  return { body, lid };
+  return { body, lid, plate };
 }
 
 function buildBodyAndLid(wasm: ManifoldToplevel, scope: Scope, p: CaseParams): CaseManifolds {
@@ -71,6 +79,13 @@ function toMeshData(m: Manifold): MeshData {
 }
 
 /** フタを上下反転（X 軸回りに 180°）して上面を Z=0 に置き、本体の奥（+Y）に並べる */
+/** 中板は平置きのまま Z=0 に下ろし、本体の手前（-Y）に並べる */
+function platePrintMatrix(p: CaseParams): Mat4 {
+  const d = deriveDims(p);
+  const gap = 10;
+  return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -(d.outerDepth + gap), -deriveLayerDims(p).zBottom, 1];
+}
+
 function lidPrintMatrix(p: CaseParams): Mat4 {
   const d = deriveDims(p);
   const gap = 10;
@@ -106,6 +121,7 @@ export function couponParams(p: CaseParams): CaseParams {
     },
     holes: [],
     retainers: [],
+    layer: { ...p.layer, enabled: false },
   };
 }
 
@@ -129,6 +145,13 @@ export function buildCase(wasm: ManifoldToplevel, p: CaseParams): BuildResult {
       const coupon = buildCaseManifolds(wasm, scope, cp);
       parts.push(toPart(coupon.body, 'coupon-body', 'テスト片 本体', 'coupon', IDENTITY));
       parts.push(toPart(coupon.lid!, 'coupon-lid', 'テスト片 フタ', 'coupon', lidPrintMatrix(cp)));
+    }
+    if (main.plate) {
+      // 本番の部品の並び（本体・フタ・中板）を保つため、テスト片より前に入れる
+      const at = parts.findIndex((x) => x.group === 'coupon');
+      const plate = toPart(main.plate, 'plate', '中板', 'main', platePrintMatrix(p));
+      if (at < 0) parts.push(plate);
+      else parts.splice(at, 0, plate);
     }
     return { parts, lidSlide };
   } finally {

@@ -19,6 +19,7 @@ export interface ViewOptions {
 const COLORS: Record<string, string> = {
   body: '#d9a441',
   lid: '#6f9fd8',
+  plate: '#7fb07a',
 };
 
 function useBufferGeometry(mesh: MeshData): THREE.BufferGeometry {

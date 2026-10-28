@@ -60,26 +60,42 @@ function shelfSection(wasm: ManifoldToplevel, scope: Scope, p: CaseParams, r: Re
   );
 }
 
-/** 全周の棚：内側の空間の輪郭に沿ったリング。凸なので「空ける部分」を凸包で作れる */
-function shelfAll(wasm: ManifoldToplevel, scope: Scope, p: CaseParams, r: RetainerParams): Manifold {
+/**
+ * 内側の全周に沿った段（リング）。上面の高さ zTop（外形底面基準）、奥行き depth、先端の厚み thickness、
+ * 下側は壁となす角 angle の斜面。内側の空間の輪郭は凸なので「空ける部分」を凸包で作れる。
+ * 全周の棚と、中板の受けの段で使う。
+ */
+export function perimeterLedge(
+  wasm: ManifoldToplevel,
+  scope: Scope,
+  p: CaseParams,
+  zTop: number,
+  depth: number,
+  thickness: number,
+  angle: number,
+): Manifold {
   const { Manifold } = wasm;
   const b = p.body;
   const segs = p.print.circularSegments;
   const innerR = Math.max(b.cornerRadius - b.wallThickness, 0);
-  const zt = b.bottomThickness + r.z;
-  const zf = zt - r.shelfThickness;
-  const drop = undersideDrop(r.protrusion, r.undersideAngle);
+  const zf = zTop - thickness;
+  const drop = undersideDrop(depth, angle);
   const outline = (off: number) =>
     roundedRect(wasm, scope, b.innerWidth + 2 * off, b.innerDepth + 2 * off, Math.max(innerR + off, 0), segs);
   const slab = (cs: CrossSection, z0: number, z1: number) =>
     scope.keep(scope.keep(cs.extrude(z1 - z0)).translate(0, 0, z0));
 
-  const ring = slab(outline(EMBED), zf - drop, zt);
+  const ring = slab(outline(EMBED), zf - drop, zTop);
   // 空ける部分：上は輪郭を奥行きぶん縮めた形、下は元の輪郭。その間が斜面になる
   const open = scope.keep(
-    Manifold.hull([slab(outline(-r.protrusion), zf, zt + 1), slab(outline(0), zf - drop - 1, zf - drop)]),
+    Manifold.hull([slab(outline(-depth), zf, zTop + 1), slab(outline(0), zf - drop - 1, zf - drop)]),
   );
   return scope.keep(ring.subtract(open));
+}
+
+/** 全周の棚 */
+function shelfAll(wasm: ManifoldToplevel, scope: Scope, p: CaseParams, r: RetainerParams): Manifold {
+  return perimeterLedge(wasm, scope, p, p.body.bottomThickness + r.z, r.protrusion, r.shelfThickness, r.undersideAngle);
 }
 
 function buildRetainer(wasm: ManifoldToplevel, scope: Scope, p: CaseParams, r: RetainerParams): Manifold {

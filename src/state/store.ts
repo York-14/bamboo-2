@@ -25,6 +25,7 @@ interface ParamsState {
   updateHole: (id: string, patch: Partial<HoleParams>) => void;
   duplicateHole: (id: string) => void;
   removeHole: (id: string) => void;
+  setLayer: <K extends keyof CaseParams['layer']>(key: K, value: CaseParams['layer'][K]) => void;
   addRetainer: (type: RetainerType) => void;
   updateRetainer: (id: string, patch: Partial<RetainerParams>) => void;
   duplicateRetainer: (id: string) => void;
@@ -96,6 +97,8 @@ export const useParams = create<ParamsState>()(
         }),
       removeHole: (id) =>
         set((s) => ({ params: { ...s.params, holes: s.params.holes.filter((h) => h.id !== id) } })),
+      setLayer: (key, value) =>
+        set((s) => ({ params: { ...s.params, layer: { ...s.params.layer, [key]: value } } })),
       addRetainer: (type) =>
         set((s) => {
           const r: RetainerParams = { ...DEFAULT_RETAINERS[type], id: newId('r') };

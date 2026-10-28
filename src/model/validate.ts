@@ -1,5 +1,5 @@
 import type { CaseParams, HoleParams, RetainerParams } from './params';
-import { deriveDims, deriveDividerLayout, deriveLidDims } from './derive';
+import { deriveDims, deriveDividerLayout, deriveLayerDims, deriveLidDims } from './derive';
 import { boxesOverlap, faceBox, holeCenters, holeExtent, isWallFace, patternExtent, usesHeight, type Box3 } from './holes';
 import { innerWallLength, retainerBox, retainerSpan, retainerZRange, ribCenters } from './retainers';
 
@@ -70,6 +70,7 @@ export function validate(p: CaseParams): Issue[] {
   validateDividers(p, err, warn);
   for (const hole of p.holes) validateHole(p, hole, err, warn);
   for (const r of p.retainers) validateRetainer(p, r, err, warn);
+  if (p.layer.enabled) validateLayer(p, err, warn);
   return issues;
 }
 
@@ -144,15 +145,19 @@ function validateDividers(p: CaseParams, err: Report, warn: Report): void {
   const layout = deriveDividerLayout(p);
   if (dv.heightMode === 'full') {
     if (dv.topClearance < 0) err('dividers.topClearance', 'フタとの隙間は 0 以上にしてください');
-    else if (layout.maxHeight <= 0) err('dividers.topClearance', 'フタとの隙間が内寸の高さ以上です');
+    else if (layout.maxHeight <= 0) {
+      err('dividers.topClearance', p.layer.enabled ? '中板との隙間が中板の高さ以上です' : 'フタとの隙間が内寸の高さ以上です');
+    }
   } else if (!(dv.height > 0)) {
     err('dividers.height', '仕切りの高さは 0 より大きくしてください');
   } else if (dv.height > layout.maxHeight + 1e-9) {
     err(
       'dividers.height',
-      p.lid.enabled
-        ? `仕切りがフタに当たります。高さは ${layout.maxHeight.toFixed(1)} mm 以下にしてください（内寸高さ − フタとの隙間）`
-        : `仕切りの高さは内寸の高さ（${b.innerHeight} mm）以下にしてください`,
+      p.layer.enabled
+        ? `仕切りが中板に当たります。高さは ${layout.maxHeight.toFixed(1)} mm 以下にしてください（中板の高さ − 隙間）`
+        : p.lid.enabled
+          ? `仕切りがフタに当たります。高さは ${layout.maxHeight.toFixed(1)} mm 以下にしてください（内寸高さ − フタとの隙間）`
+          : `仕切りの高さは内寸の高さ（${b.innerHeight} mm）以下にしてください`,
     );
   }
 
@@ -353,5 +358,58 @@ function validateRetainer(p: CaseParams, r: RetainerParams, err: Report, warn: R
   if (holeHit) warn(path, `${label}が同じ壁の穴と重なっています`);
   if (r.type !== 'shelf' && dividerBoxes(p).some((db) => boxes.some((bx) => boxesOverlap(bx, db)))) {
     warn(path, `${label}が仕切りと重なっています`);
+  }
+}
+
+function validateLayer(p: CaseParams, err: Report, warn: Report): void {
+  const b = p.body;
+  const l = p.layer;
+  const ld = deriveLayerDims(p);
+
+  if (!(l.height > 0)) return err('layer.height', '中板の高さは 0 より大きくしてください');
+  if (!(l.plateThickness > 0)) return err('layer.plateThickness', '中板の厚みは 0 より大きくしてください');
+  if (l.sideClearance < 0) return err('layer.sideClearance', '中板の隙間は 0 以上にしてください');
+  if (!(l.ledgeDepth > 0)) return err('layer.ledgeDepth', '受けの段の奥行きは 0 より大きくしてください');
+  if (l.ledgeThickness < 0) return err('layer.ledgeThickness', '受けの段の厚みは 0 以上にしてください');
+
+  if (ld.bearing <= 0) {
+    return err('layer.ledgeDepth', '受けの段の奥行きが中板の隙間以下で、中板が段に載りません');
+  }
+  if (ld.bearing < 1) warn('layer.ledgeDepth', `中板が段に載る幅が ${ld.bearing.toFixed(2)} mm と狭く、落ちやすくなります`);
+  if (ld.ledgeLowest < 0) {
+    return err('layer.height', `受けの段の斜面が床より下にはみ出します。中板の高さは ${(l.ledgeThickness + l.ledgeDepth).toFixed(1)} mm 以上にしてください`);
+  }
+  const topLimit = b.innerHeight - (p.lid.enabled ? p.lid.verticalClearance + 0.3 : 0);
+  if (l.height + l.plateThickness > topLimit + 1e-9) {
+    return err('layer.height', p.lid.enabled ? '中板がフタに当たります。中板を低くしてください' : '中板が上面より上にはみ出します');
+  }
+  if (2 * l.ledgeDepth >= Math.min(b.innerWidth, b.innerDepth)) return err('layer.ledgeDepth', '受けの段の奥行きが内寸に対して大きすぎます');
+  if (l.plateThickness < p.print.minWall) warn('layer.plateThickness', `中板の厚みが最小壁厚（${p.print.minWall} mm）より薄いです`);
+
+  if (l.fingerHole !== 'none') {
+    if (!(l.fingerHoleSize > 0)) return err('layer.fingerHoleSize', '指穴の大きさは 0 より大きくしてください');
+    if (l.fingerHole === 'slot' && !(l.fingerHoleWidth > 0)) return err('layer.fingerHoleWidth', '指穴の幅は 0 より大きくしてください');
+    const along = l.fingerHole === 'slot' ? Math.max(l.fingerHoleSize, l.fingerHoleWidth) : l.fingerHoleSize;
+    const across = l.fingerHole === 'slot' ? Math.min(l.fingerHoleSize, l.fingerHoleWidth) : l.fingerHoleSize;
+    if (along > ld.plateWidth - 10 || across > ld.plateDepth - 10) {
+      err('layer.fingerHoleSize', '指穴が中板に対して大きすぎます（縁を 5 mm 以上残してください）');
+    }
+  }
+
+  // 中板・受けの段の高さの範囲（床面基準）にかかる抜け止めと、壁の穴
+  const zLo = ld.ledgeLowest;
+  const zHi = l.height + l.plateThickness;
+  for (const r of p.retainers) {
+    const { zMin, zMax } = retainerZRange(r);
+    if (zMin < zHi && zLo < zMax) {
+      warn(`retainers.${r.id}`, `${RETAINER_LABEL[r.type]}が中板・受けの段の高さ（床面から ${zLo.toFixed(1)}〜${zHi.toFixed(1)} mm）にかかっています`);
+    }
+  }
+  for (const h of p.holes) {
+    if (!isWallFace(h.face)) continue;
+    const e = patternExtent(h, p.print.holeCompensation);
+    if (e.vMin < b.bottomThickness + zHi && b.bottomThickness + zLo < e.vMax) {
+      warn(`holes.${h.id}`, '穴が中板の受けの段の高さにかかっています（段が穴をふさぎます）');
+    }
   }
 }

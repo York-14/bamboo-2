@@ -8,11 +8,13 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:artifact": "BASE_PATH=./ vite build --outDir dist-artifact && node scripts/make-artifact.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
+    "fflate": "^0.8.2",
     "manifold-3d": "^3.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
