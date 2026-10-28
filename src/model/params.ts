@@ -1,7 +1,7 @@
 // ケースのパラメータ定義。単位はすべて mm。
 // このオブジェクトが唯一の情報源で、形状は毎回ここから作り直す。
 
-export const PARAMS_VERSION = 4;
+export const PARAMS_VERSION = 5;
 
 export interface BodyParams {
   /** 内寸 横（X） */
@@ -128,6 +128,48 @@ export interface HoleParams {
   pattern: HolePattern;
 }
 
+/**
+ * 抜け止め（内側の壁に付ける突起）。
+ * crushRib: 圧入用の縦の三角リブ / stopper: 押し込むと引っかかる爪 / shelf: 板を載せる棚
+ */
+export type RetainerType = 'crushRib' | 'stopper' | 'shelf';
+export const RETAINER_TYPES: RetainerType[] = ['crushRib', 'stopper', 'shelf'];
+
+/** all は内側の全周（棚のみ） */
+export type RetainerFace = 'front' | 'back' | 'left' | 'right' | 'all';
+export const RETAINER_FACES: RetainerFace[] = ['front', 'back', 'left', 'right', 'all'];
+
+export interface RetainerParams {
+  id: string;
+  type: RetainerType;
+  face: RetainerFace;
+  /** 壁に沿った中心位置。穴と同じく外から見て右が＋（面の中心から） */
+  u: number;
+  /** stopper・shelf の壁に沿った長さ */
+  length: number;
+  /** stopper・shelf を壁の端から端まで伸ばす */
+  fullLength: boolean;
+  /**
+   * 床面（底面の上側）からの高さ。
+   * crushRib: 下端 / stopper: 爪の先端 / shelf: 棚の上面
+   */
+  z: number;
+  /** crushRib の縦の長さ */
+  ribLength: number;
+  /** 壁からの突き出し量（shelf は奥行き） */
+  protrusion: number;
+  /** crushRib の根元の幅 */
+  ribBase: number;
+  ribCount: number;
+  ribPitch: number;
+  /** 下側の斜面と壁のなす角（度）。45° 以下ならサポート不要 */
+  undersideAngle: number;
+  /** stopper の上側（差し込み側）の斜面と壁のなす角（度） */
+  topAngle: number;
+  /** shelf の先端の厚み（上面から斜面が始まるまで） */
+  shelfThickness: number;
+}
+
 export interface PrintParams {
   /** ノズル径 */
   nozzleDiameter: number;
@@ -145,6 +187,7 @@ export interface CaseParams {
   lid: LidParams;
   dividers: DividerParams;
   holes: HoleParams[];
+  retainers: RetainerParams[];
   print: PrintParams;
 }
 
@@ -174,6 +217,7 @@ export const DEFAULT_PARAMS: CaseParams = {
     clickDiameter: 2.0,
   },
   holes: [],
+  retainers: [],
   dividers: {
     x: { enabled: false, mode: 'equal', divisions: 2, positions: [50] },
     y: { enabled: false, mode: 'equal', divisions: 2, positions: [30] },
@@ -191,6 +235,29 @@ export const DEFAULT_PARAMS: CaseParams = {
     circularSegments: 64,
     holeCompensation: 0.2,
   },
+};
+
+const RETAINER_BASE: Omit<RetainerParams, 'id' | 'type'> = {
+  face: 'front',
+  u: 0,
+  length: 20,
+  fullLength: false,
+  z: 0,
+  ribLength: 20,
+  protrusion: 0.4,
+  ribBase: 1.6,
+  ribCount: 2,
+  ribPitch: 20,
+  undersideAngle: 45,
+  topAngle: 30,
+  shelfThickness: 1.2,
+};
+
+/** 種類ごとの初期値（id は呼び出し側で付ける） */
+export const DEFAULT_RETAINERS: Record<RetainerType, Omit<RetainerParams, 'id'>> = {
+  crushRib: { ...RETAINER_BASE, type: 'crushRib' },
+  stopper: { ...RETAINER_BASE, type: 'stopper', z: 15, length: 10, protrusion: 1.0 },
+  shelf: { ...RETAINER_BASE, type: 'shelf', face: 'all', z: 5, protrusion: 2.0 },
 };
 
 /** 「穴を追加」で作る穴（id は呼び出し側で付ける） */
@@ -261,6 +328,21 @@ function normalizeHoles(input: unknown): HoleParams[] {
     });
 }
 
+function normalizeRetainers(input: unknown): RetainerParams[] {
+  if (!Array.isArray(input)) return [];
+  const used = new Set<string>();
+  return input
+    .filter((r): r is Record<string, unknown> => typeof r === 'object' && r !== null)
+    .map((r, i) => {
+      const type = RETAINER_TYPES.includes(r.type as RetainerType) ? (r.type as RetainerType) : 'crushRib';
+      const base = mergeFields(DEFAULT_RETAINERS[type], r, { face: RETAINER_FACES });
+      let id = typeof r.id === 'string' && r.id !== '' ? r.id : `retainer-${i + 1}`;
+      while (used.has(id)) id = `${id}-dup`;
+      used.add(id);
+      return { ...base, type, id };
+    });
+}
+
 /** JSON 読み込み・localStorage 復元時の正規化。欠けた項目や不正な値は既定値で埋める */
 export function normalizeParams(input: unknown): CaseParams {
   const obj = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
@@ -273,6 +355,7 @@ export function normalizeParams(input: unknown): CaseParams {
     }),
     dividers: normalizeDividers(obj.dividers),
     holes: normalizeHoles(obj.holes),
+    retainers: normalizeRetainers(obj.retainers),
     print: mergeFields(DEFAULT_PARAMS.print, obj.print),
   };
 }

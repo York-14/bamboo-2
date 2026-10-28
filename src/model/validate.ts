@@ -1,6 +1,7 @@
-import type { CaseParams, HoleParams } from './params';
+import type { CaseParams, HoleParams, RetainerParams } from './params';
 import { deriveDims, deriveDividerLayout, deriveLidDims } from './derive';
 import { boxesOverlap, faceBox, holeCenters, holeExtent, isWallFace, patternExtent, usesHeight, type Box3 } from './holes';
+import { innerWallLength, retainerBox, retainerSpan, retainerZRange, ribCenters } from './retainers';
 
 export type IssueLevel = 'error' | 'warning';
 
@@ -68,6 +69,7 @@ export function validate(p: CaseParams): Issue[] {
   if (l.enabled) validateLid(p, err, warn);
   validateDividers(p, err, warn);
   for (const hole of p.holes) validateHole(p, hole, err, warn);
+  for (const r of p.retainers) validateRetainer(p, r, err, warn);
   return issues;
 }
 
@@ -281,5 +283,75 @@ function validateHole(p: CaseParams, hole: HoleParams, err: Report, warn: Report
       return dbs.some((db) => boxesOverlap(box, db));
     });
     if (hit) warn(path, '穴が仕切りと重なっています');
+  }
+}
+
+const RETAINER_LABEL: Record<RetainerParams['type'], string> = {
+  crushRib: 'つぶしリブ',
+  stopper: 'ストッパー',
+  shelf: '棚',
+};
+
+function validateRetainer(p: CaseParams, r: RetainerParams, err: Report, warn: Report): void {
+  const path = `retainers.${r.id}`;
+  const b = p.body;
+  const label = RETAINER_LABEL[r.type];
+
+  if (r.face === 'all' && r.type !== 'shelf') return err(path, '全周に付けられるのは棚だけです');
+  if (!(r.protrusion > 0)) return err(path, '突き出し量は 0 より大きくしてください');
+  if (r.type === 'crushRib') {
+    if (!(r.ribBase > 0)) return err(path, 'リブの根元の幅は 0 より大きくしてください');
+    if (!Number.isInteger(r.ribCount) || r.ribCount < 1) return err(path, 'リブの本数は 1 以上の整数にしてください');
+    if (r.ribCount > 1 && r.ribPitch < r.ribBase) return err(path, 'リブの間隔が根元の幅より狭く、リブ同士が重なります');
+    if (!(r.ribLength > 2 * r.protrusion)) return err(path, 'リブの長さは突き出し量の 2 倍より長くしてください（上下の端を 45° に絞るため）');
+    if (r.protrusion > 1) warn(path, 'つぶしリブの突き出しが 1 mm を超えています。圧入が固すぎる可能性があります');
+    if (r.protrusion < p.print.nozzleDiameter / 2) warn(path, 'つぶしリブの突き出しが小さく、印刷で再現できない可能性があります');
+  } else {
+    if (!(r.undersideAngle > 0 && r.undersideAngle < 90)) return err(path, '下側の斜面の角度は 0〜90° の間にしてください');
+    if (r.undersideAngle > 45 + 1e-9) warn(path, '下側の斜面が 45° を超えていて、サポートが必要になります');
+    if (r.type === 'stopper' && !(r.topAngle > 0 && r.topAngle < 90)) return err(path, '上側の斜面の角度は 0〜90° の間にしてください');
+    if (r.type === 'shelf' && !(r.shelfThickness >= 0)) return err(path, '棚の先端の厚みは 0 以上にしてください');
+    if (!r.fullLength && r.face !== 'all' && !(r.length > 0)) return err(path, `${label}の長さは 0 より大きくしてください`);
+  }
+
+  // 高さ：床面より下、フタ（上面）より上にはみ出さない
+  const { zMin, zMax } = retainerZRange(r);
+  const zLimit = b.innerHeight - (p.lid.enabled ? p.lid.verticalClearance + 0.3 : 0);
+  if (zMin < -1e-9) return err(path, `${label}が床面より下にはみ出しています（下側の斜面を含む）`);
+  if (zMax > zLimit + 1e-9) {
+    return err(path, p.lid.enabled ? `${label}がフタに当たります（上端 ${zMax.toFixed(1)} mm）` : `${label}が上面より上にはみ出しています`);
+  }
+
+  // 突き出し：反対側の壁まで届かない
+  const across = r.face === 'all' ? Math.min(b.innerWidth, b.innerDepth) : r.face === 'front' || r.face === 'back' ? b.innerDepth : b.innerWidth;
+  if (r.protrusion * (r.face === 'all' ? 2 : 1) >= across) return err(path, '突き出し量が内寸に対して大きすぎます');
+
+  if (r.face === 'all') return;
+
+  // 壁に沿った位置：角の丸みにかからない
+  const innerR = Math.max(b.cornerRadius - b.wallThickness, 0);
+  const half = innerWallLength(p, r.face) / 2;
+  const span = retainerSpan(p, r);
+  const uAbs = Math.max(-span.uMin, span.uMax);
+  if (uAbs > half + 1e-9) return err(path, `${label}が壁からはみ出しています`);
+  if (!r.fullLength && uAbs > half - innerR + 1e-9) warn(path, `${label}が壁の角の丸みにかかっています`);
+
+  // 同じ壁の穴・仕切りとの重なり
+  const pieces: [number, number][] =
+    r.type === 'crushRib' ? ribCenters(r).map((c) => [c - r.ribBase / 2, c + r.ribBase / 2]) : [[span.uMin, span.uMax]];
+  const boxes = pieces.map(([a, c]) => retainerBox(p, r, a, c)!);
+  // 穴とは同じ面の (u, 外形底面からの高さ) で比べる
+  const zLo = b.bottomThickness + zMin;
+  const zHi = b.bottomThickness + zMax;
+  const holeHit = p.holes.some((h) => {
+    if (h.face !== r.face) return false;
+    const e = holeExtent(h, p.print.holeCompensation);
+    return holeCenters(h).some(([u, v]) =>
+      pieces.some(([a, c]) => u + e.uMin < c && a < u + e.uMax && v + e.vMin < zHi && zLo < v + e.vMax),
+    );
+  });
+  if (holeHit) warn(path, `${label}が同じ壁の穴と重なっています`);
+  if (r.type !== 'shelf' && dividerBoxes(p).some((db) => boxes.some((bx) => boxesOverlap(bx, db)))) {
+    warn(path, `${label}が仕切りと重なっています`);
   }
 }

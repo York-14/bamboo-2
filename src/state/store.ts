@@ -3,13 +3,17 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   DEFAULT_HOLE,
   DEFAULT_PARAMS,
+  DEFAULT_RETAINERS,
   normalizeParams,
   type CaseParams,
   type DividerSet,
   type HoleParams,
+  type RetainerParams,
+  type RetainerType,
 } from '../model/params';
 
-const newHoleId = () => `h-${Math.random().toString(36).slice(2, 8)}`;
+const newId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+const newHoleId = () => newId('h');
 
 interface ParamsState {
   params: CaseParams;
@@ -21,6 +25,10 @@ interface ParamsState {
   updateHole: (id: string, patch: Partial<HoleParams>) => void;
   duplicateHole: (id: string) => void;
   removeHole: (id: string) => void;
+  addRetainer: (type: RetainerType) => void;
+  updateRetainer: (id: string, patch: Partial<RetainerParams>) => void;
+  duplicateRetainer: (id: string) => void;
+  removeRetainer: (id: string) => void;
   setPrint: <K extends keyof CaseParams['print']>(key: K, value: CaseParams['print'][K]) => void;
   /** JSON 読み込み時など、丸ごと置き換える（正規化してから入れる） */
   replace: (input: unknown) => void;
@@ -88,6 +96,25 @@ export const useParams = create<ParamsState>()(
         }),
       removeHole: (id) =>
         set((s) => ({ params: { ...s.params, holes: s.params.holes.filter((h) => h.id !== id) } })),
+      addRetainer: (type) =>
+        set((s) => {
+          const r: RetainerParams = { ...DEFAULT_RETAINERS[type], id: newId('r') };
+          return { params: { ...s.params, retainers: [...s.params.retainers, r] } };
+        }),
+      updateRetainer: (id, patch) =>
+        set((s) => ({
+          params: { ...s.params, retainers: s.params.retainers.map((r) => (r.id === id ? { ...r, ...patch } : r)) },
+        })),
+      duplicateRetainer: (id) =>
+        set((s) => {
+          const i = s.params.retainers.findIndex((r) => r.id === id);
+          if (i < 0) return s;
+          const copy = { ...s.params.retainers[i], id: newId('r') };
+          const retainers = [...s.params.retainers.slice(0, i + 1), copy, ...s.params.retainers.slice(i + 1)];
+          return { params: { ...s.params, retainers } };
+        }),
+      removeRetainer: (id) =>
+        set((s) => ({ params: { ...s.params, retainers: s.params.retainers.filter((r) => r.id !== id) } })),
       setPrint: (key, value) =>
         set((s) => ({ params: { ...s.params, print: { ...s.params.print, [key]: value } } })),
       replace: (input) => set({ params: normalizeParams(input) }),

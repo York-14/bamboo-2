@@ -13,6 +13,7 @@ import { CheckboxField, SelectField } from './ChoiceFields';
 import { NumberField } from './NumberField';
 import { PositionsField } from './PositionsField';
 import { HoleList } from './HoleEditor';
+import { RetainerList } from './RetainerEditor';
 
 type BodyKey = keyof CaseParams['body'];
 type PrintKey = keyof CaseParams['print'];
@@ -277,6 +278,8 @@ export function ParamPanel({ issues }: { issues: Issue[] }) {
       </section>
 
       <HoleList issues={issues} />
+
+      <RetainerList issues={issues} />
 
       <details className="panel-section">
         <summary>
